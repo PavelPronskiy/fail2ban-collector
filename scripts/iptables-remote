@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# remote iptables rule adm
+# [create_rule|delete_rule|ban|unban]
+#
+
+
+ACTION_METHOD="${1}"
+REMOTE_SERVER="${2}"
+RULE_NAME="${3}"
+REJECT_IP="${4}"
+
+BLOCK_TYPE="REJECT --reject-with icmp-port-unreachable"
+
+
+# fail2ban options
+[ -n "${4}" ] && [ -n "${5}" ] && RULE_OPTS="-p ${4} --dport ${5}"
+
+__ssh() {
+
+	# $1 -- server_ip
+	# $2 -- cmd
+
+	0</dev/null ssh -aTCqx \
+		-o UserKnownHostsFile=/dev/null \
+		-o StrictHostKeyChecking=no \
+		${1} "${2}"
+		
+	if [ "$?" -gt "0" ]
+	then
+		return 1
+	else
+		return 0
+	fi
+}
+
+
+[ -z "${ACTION_METHOD}" ] && exit 1
+
+
+case "${ACTION_METHOD}" in
+	create_rule)
+		[ -z "${REMOTE_SERVER}" ] && exit 1
+		[ -z "${RULE_NAME}" ] && exit 1
+		
+		echo "[${ACTION_METHOD}] server: ${REMOTE_SERVER}, rule: ${RULE_NAME}"
+		__ssh "${REMOTE_SERVER}" "iptables -n -L ${RULE_NAME} > /dev/null 2>&1 || { iptables -N ${RULE_NAME} ; iptables -A ${RULE_NAME} -j RETURN ; iptables -I INPUT ${RULE_OPTS} -j ${RULE_NAME} ;}"
+	;;
+	delete_rule)
+		[ -z "${REMOTE_SERVER}" ] && exit 1
+		[ -z "${RULE_NAME}" ] && exit 1
+		
+		echo "[${ACTION_METHOD}] server: ${REMOTE_SERVER}, rule: ${RULE_NAME}"
+		__ssh "${REMOTE_SERVER}" "iptables -n -L ${RULE_NAME} > /dev/null 2>&1 && { iptables -D INPUT ${RULE_OPTS} -j ${RULE_NAME} ; iptables -F ${RULE_NAME} ; iptables -X ${RULE_NAME} ;}"
+	;;
+	ban)
+		[ -z "${REMOTE_SERVER}" ] && exit 1
+		[ -z "${RULE_NAME}" ] && exit 1
+		[ -z "${REJECT_IP}" ] && exit 1
+		
+		echo "[${ACTION_METHOD}] server: ${REMOTE_SERVER}, rule: ${RULE_NAME}, ip: ${REJECT_IP}"
+		__ssh "${REMOTE_SERVER}" "iptables -n -L ${RULE_NAME} | grep -q ${REJECT_IP} || iptables -I ${RULE_NAME} 1 -s ${REJECT_IP} -j ${BLOCK_TYPE}"
+	;;
+	unban)
+		[ -z "${REMOTE_SERVER}" ] && exit 1
+		[ -z "${RULE_NAME}" ] && exit 1
+		[ -z "${REJECT_IP}" ] && exit 1
+		echo "[${ACTION_METHOD}] server: ${REMOTE_SERVER}, rule: ${RULE_NAME}, ip: ${REJECT_IP}"
+
+		__ssh "${REMOTE_SERVER}" "iptables -n -L ${RULE_NAME} | grep -q ${REJECT_IP} && iptables -D ${RULE_NAME} -s ${REJECT_IP} -j ${BLOCK_TYPE}"
+	;;
+	check)
+		[ -z "${REMOTE_SERVER}" ] && exit 1
+		[ -z "${RULE_NAME}" ] && exit 1
+
+		__ssh "${REMOTE_SERVER}" "iptables -n -L ${RULE_NAME} > /dev/null"
+	;;
+esac
+
+

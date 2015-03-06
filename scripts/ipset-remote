@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# remote ipset rule adm
+# prog [ban|unban] server_ip attacker_ip
+#
+# prog create_ipset_rule server_ip rule_name
+# prog destroy_ipset_rule server_ip rule_name
+#
+
+
+
+ACTION_METHOD="${1}"
+REMOTE_SERVER="${2}"
+ATTACKER_IP="${3}"
+
+__ssh() {
+
+	# $1 -- server_ip
+	# $2 -- cmd
+
+	0</dev/null ssh -aTCqx \
+		-o UserKnownHostsFile=/dev/null \
+		-o StrictHostKeyChecking=no \
+		${1} "${2}"
+		
+	if [ "$?" -gt "0" ]
+	then
+		return 1
+	else
+		return 0
+	fi
+}
+
+__rules() {
+
+	# $1 -- action
+	# $2 -- remote_host
+	# $3 -- rule_name
+
+	action="$1"
+	remote_host="$2"
+	rule_name="$3"
+
+	case "${action}" in
+		create) __ssh "${remote_host}" "ipset --create ${rule_name} iphash" ;;
+		delete) __ssh "${remote_host}" "ipset --flush ${rule_name} && ipset --destroy ${rule_name}" ;;
+	esac
+}
+
+
+__ipset_ip() {
+
+	# $1 -- action
+	# $2 -- remote_host
+	# $3 -- rule_name
+	# $4 -- ban_ip
+
+	action="$1"
+	remote_host="$2"
+	rule_name="$3"
+	ban_ip="$4"
+
+	case "${action}" in
+		add) __ssh "${remote_host}" "ipset --add ${rule_name} ${ban_ip}" ;;
+		del) __ssh "${remote_host}" "ipset --del ${rule_name} ${ban_ip}" ;;
+	esac
+	
+	
+}
+
+#__ipt_rules() {
+	
+#}
+
+case "${1}" in
+	create_ipset_rule)
+		echo "[create] rule: ${2} rule: ${3}"
+		__rules create "${2}" "${3}"
+	;;
+	destroy_ipset_rule)
+		echo "[destroy] rule: ${2} rule: ${3}"
+		__rules delete "${2}" "${3}"
+	;;
+	ban)
+		# $2 -- server_ip
+		# $3 -- rule_name
+		# $4 -- ban_ip
+		echo "[ban] server: ${2}, rule: ${3}, ip: ${4}"
+		__ipset_ip add "${2}" "${3}" "${4}"
+	;;
+	unban)
+		echo "[unban] server: ${2}, rule: ${3}, ip: ${4}"
+		__ipset_ip del "${2}" "${3}" "${4}"
+	;;
+esac
+
+
